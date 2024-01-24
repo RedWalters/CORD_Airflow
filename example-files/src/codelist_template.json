@@ -1,0 +1,14 @@
+{
+    "$schema": "https://purl.org/csv-cubed/code-list-config/v1",
+    "title": "Insert List_name from codelists.csv",
+    "summary": "",
+    "description": "",
+    "creator": "https://www.gov.uk/government/organisations/office-for-national-statistics",
+    "publisher": "https://www.gov.uk/government/organisations/office-for-national-statistics",
+    "license": "http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+    "sort": {
+      "by": "label",
+      "method": "ascending"
+    },
+    "concepts": []
+  }

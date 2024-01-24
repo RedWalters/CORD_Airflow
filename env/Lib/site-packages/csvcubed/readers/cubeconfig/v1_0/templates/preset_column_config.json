@@ -1,0 +1,21 @@
+{
+    "year": "calendar-year.json",
+    "half-year": "calendar-half-year.json",
+    "quarter": "calendar-quarter.json",
+    "month": "calendar-month.json",
+    "week": "calendar-week.json",
+    "day": "calendar-day.json",
+    "hour": "calendar-hour.json",
+    "minute": "calendar-minute.json",
+    "second": "calendar-seconds.json",
+    "government-year": "government-year.json",
+    "government-half-year": "government-half-year.json",
+    "government-quarter": "government-quarter.json",
+    "government-week": "government-week.json",
+    "mixed-period": "mixed-period.json",
+    "gregorian-instant": "gregorian-instant.json",
+    "gregorian-interval": "gregorian-interval.json",
+    "observation-status": "observation-status.json",
+    "qudt": "qudt-units.json",
+    "statistical-geography": "statistical-geography.json"
+}

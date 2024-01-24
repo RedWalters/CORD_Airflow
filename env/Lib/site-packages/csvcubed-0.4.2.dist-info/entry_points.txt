@@ -1,0 +1,3 @@
+[console_scripts]
+csvcubed=csvcubed.cli.entrypoint:entry_point
+
