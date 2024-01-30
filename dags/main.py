@@ -69,7 +69,7 @@ def codelists_from_XML(file_path, output_path):
     result.columns = ["codelist_name", "urn", "notation", "label", "description"]
     result.to_csv(output_path, encoding='utf-8', index=False)
 
-def xmlToCsvSTANDARDSDMX(input_path, output_path):
+def xmlToCsvSDMX2_0(input_path, output_path):
 
     # Looks like I'm gonna have to hard code the metadata at the top for now (TODO)
 
@@ -151,7 +151,7 @@ def xmlToCsvSTANDARDSDMX(input_path, output_path):
 
     full_table.to_csv(output_path, encoding='utf-8', index=False)
 
-def xmlToCsvCORDSDMX(input_path, output_path):
+def xmlToCsvSDMX2_1(input_path, output_path):
 
     import xmltodict
 
@@ -364,7 +364,7 @@ with DAG(
         
         XMLtoCSV = PythonOperator(
             task_id = 'convertXMLtoCSV',
-            python_callable = xmlToCsvCORDSDMX,
+            python_callable = xmlToCsvSDMX2_0,
             op_args=['./example-files/input/' + src_file, "example-files/out/SU_SDMX.csv"]
         )
 
