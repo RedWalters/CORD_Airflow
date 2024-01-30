@@ -55,13 +55,13 @@ def codelists_from_XML(file_path, output_path):
             df_result = pd.DataFrame({
                 'list_name': name_of_list,
                 'urn': code_data[x].get('@urn', 'N/A'),
-                'id': code_data[x].get('@id', 'N/A'),
+                'id': code_data[x].get('@id', str(code_data[x].get('@urn', 'N/A').split('.')[-1:][0])),
                 'name': code_data[x].get('str:Name', {}).get('#text', 'N/A'),
                 'desc': code_data[x].get('str:Description', {}).get('#text', 'N/A')
             }, index=[1])
 
             codelist_df[x] = df_result
-        
+            
         codelist_df_combined = pd.concat(codelist_df.values())
         output[i] = codelist_df_combined
 
@@ -342,14 +342,14 @@ def throw_error(error):
 path_to_json = './example-files/codelists/' 
 json_files = [pos_json for pos_json in os.listdir(path_to_json) if pos_json.endswith('.json')]
 
-path_to_raw = './example-files/src/' 
-src_files = [pos_json for pos_json in os.listdir(path_to_raw) if pos_json.endswith('.csv')]
+path_to_raw = './example-files/input/' 
+src_files = [pos_json for pos_json in os.listdir(path_to_raw) if pos_json.endswith('.xml')]
 
 with DAG(
     default_args = default_args,
-    dag_id = 'CORD-POC_v1',
+    dag_id = 'CORD-POC_v2',
     description = 'Testing supply use tables',
-    start_date = datetime(2024, 1, 22),
+    start_date = datetime(2024, 1, 24),
     schedule_interval = '@daily'
 ) as dag:
     if len(src_files) == 1:
@@ -359,14 +359,22 @@ with DAG(
         codelistsFromXML = PythonOperator(
                 task_id = 'codelistsFromXML',
                 python_callable = codelists_from_XML,
-                op_args=[r"example-files/XMLs/T1500 - NATP.ESA10.SU_SDMX Output_BlueBook_24_Jan_2024.xml", "example-files/out/CodeLists.csv"]
+                op_args=['./example-files/XMLs/NA_SU_v1.9_SDMX2.0 OT.xml', "example-files/out/CodeLists.csv"]
             )
         
         XMLtoCSV = PythonOperator(
             task_id = 'convertXMLtoCSV',
             python_callable = xmlToCsvCORDSDMX,
-            op_args=[r"example-files/XMLs/T1500 - NATP.ESA10.SU_SDMX Output_BlueBook_24_Jan_2024.xml", "example-files/out/SU_SDMX.csv"]
+            op_args=['./example-files/input/' + src_file, "example-files/out/SU_SDMX.csv"]
         )
+
+        generateCodelists = PythonOperator(
+                task_id = 'generateCodelists',
+                python_callable = generate_codelists,
+                op_args=["example-files/out/CodeLists.csv"]
+            )
+        
+        codelistsFromXML >> XMLtoCSV >> generateCodelists
 
         #CSVWrangling = PythonOperator(
         #        task_id = 'CSVWrangling',
@@ -374,15 +382,9 @@ with DAG(
         #        op_args=["example-files/out/SU_SDMX.csv", 'example-files/out/SU_SDMX_tidy.csv']
         #    )
          
-        codelistsFromXML >> XMLtoCSV #>> CSVWrangling
+        #codelistsFromXML >> XMLtoCSV #>> CSVWrangling
             
-        #generateCodelists = PythonOperator(
-        #        task_id = 'generateCodelists',
-        #        python_callable = generate_codelists,
-        #        op_args=['example-files/CodeLists.csv']
-        #    )
         
-        #codelistsFromXML >> CSVWrangling >> generateCodelists
 
         # where is the below .json file coming from? is it just handmade? in which case are we gonna have to handmake these for every file?
         # 
@@ -408,5 +410,5 @@ with DAG(
             multipleFilesError = PythonOperator(
                 task_id = 'Error',
                 python_callable = throw_error,
-                op_args=["Multiple Input files detected, please ensure only 1 source file is present."]                
+                op_args=["Multiple/No Input files detected, please ensure only 1 source file is present."]                
             )  
