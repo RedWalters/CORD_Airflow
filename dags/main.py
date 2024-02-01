@@ -33,7 +33,13 @@ default_args = {
     'retry_delay' : timedelta(minutes = 1)
 }
 
-
+def set_key(dictionary, key, value):
+     if key not in dictionary:
+         dictionary[key] = value
+     elif type(dictionary[key]) == list:
+         dictionary[key].append(value)
+     else:
+         dictionary[key] = [dictionary[key], value]
 
 def codelists_from_XML(file_path, output_path):
     with open(file_path, 'r') as file:
@@ -47,7 +53,6 @@ def codelists_from_XML(file_path, output_path):
     for i in range(len(code_lists)):
         list = code_lists[i]
         name_of_list = list['str:Name']['#text']
-        print(name_of_list)
 
         codelist_df = {}
         code_data = list['str:Code']
@@ -80,8 +85,6 @@ def xmlToCsvSDMX2_0(input_path, output_path):
     # I hate everything about how I've got the header info here but it works with multiple types of SDMX
         
     header = data["CompactData"]['Header']
-
-    print(header)
 
     header_dict = {}
 
@@ -162,8 +165,6 @@ def xmlToCsvSDMX2_1(input_path, output_path):
     # I hate everything about how I've got the header info here but it works with multiple types of SDMX
 
     header = data["message:GenericData"]['message:Header']
-
-    print(header)
 
     header_dict = {}
 
@@ -328,6 +329,108 @@ def generate_turtle_from_json_file(json_file_path, output_file):
 
     print(f"RDF data has been serialized to {code_list_title}.ttl")
 
+def generate_editions_metadata(transformedCSV, structureXML, outputPath, config = False):
+
+    # Read in Structure XML and tidyCSV 
+    with open(structureXML, 'r') as file:
+            xml_content = file.read()
+            data = xmltodict.parse(xml_content)
+
+    tidyCSV = pd.read_csv('../example-files/out/SU_SDMX.csv')
+
+    # Pull out the dataset title which we'll use later
+    dataset_title = tidyCSV['TITLE'].iloc[0]
+
+    # Get a list of the concepts and key families from the structure XML which contain info on the data dimensions, at the moment we're basically just using this for the datatype and dimension name where possible
+    # this then gets thrown into a dictionary with an entry for each possible dimension header
+    dimensions = {}
+
+    metadata = data["mes:Structure"]['mes:Concepts']['str:ConceptScheme']['str:Concept']
+
+    for concept in metadata:
+        set_key(dimensions, concept['@id'],  concept['@id'].lower())
+        set_key(dimensions, concept['@id'],  concept['str:Name']['#text'])
+        
+    metadata = data["mes:Structure"]['mes:KeyFamilies']['str:KeyFamily']['str:Components']['str:Dimension']
+
+    for concept in metadata:
+        set_key(dimensions, concept['@conceptRef'], concept['str:TextFormat']['@textType'])
+
+    # Here we're going through each header in the tidyCSV and attempting to match it up with the DSD informaion we got before, for other headers (such as the metadata columns) we assume the datatype is just a string
+    full_dimensions = {}
+
+    for i in tidyCSV.columns:
+        if i in dimensions.keys():
+            full_dimensions[i] = i
+            if len(dimensions[i]) == 3:
+                set_key(full_dimensions, i, dimensions[i][0])
+                set_key(full_dimensions, i, dimensions[i][1])   
+                set_key(full_dimensions, i, dimensions[i][2])          
+            else:
+                set_key(full_dimensions, i, dimensions[i][0])
+                set_key(full_dimensions, i, dimensions[i][1])
+                set_key(full_dimensions, i, 'string')
+        else:
+            full_dimensions[i] = i
+            set_key(full_dimensions, i, i.lower())
+            set_key(full_dimensions, i, i.lower())
+            set_key(full_dimensions, i, 'string')
+
+    full_dimensions_list = list(full_dimensions.values())
+
+    # Read in our metadata template
+
+    with open(r"../example-files/editions_template.json") as json_data:
+            editions_template = json.load(json_data)
+
+    # now a very terrible and hardcoded implementation of applying what little metadata we have to as many fields as possible
+
+    editions_template['@id'] = 'https://staging.idpd.uk/datasets/' + pathify(dataset_title) + '/editions'
+    editions_template['title'] = dataset_title
+
+    current_edition = editions_template['editions'][0] # This will get the first entry in the editions list to use as a template (TODO: include editions list length to check if this will be the first edition or an addition and create addendum)
+        
+    current_edition['@id'] = 'https://staging.idpd.uk/datasets/' + pathify(dataset_title) + '/editions/' + str(datetime.now().strftime("%Y-%m"))
+    current_edition['in_series'] = 'https://staging.idpd.uk/datasets/' + pathify(dataset_title)
+    current_edition['identifier'] = str(datetime.now().strftime("%Y-%m"))
+    current_edition['title'] = dataset_title
+    current_edition['summary'] = "" # Doesnt appear to have any summary or description in the supporting XML which isnt surprising but means we have nothing for these 2 fields at entry
+    current_edition['description'] = ""
+    current_edition['publisher'] = "" # not sure whether the sender/reciever covers publisher/creator so will leave this blank for now
+    current_edition['creator'] = ""
+    current_edition['contact_point'] = {'name': "", 'email' : ""} # Take from config file
+    current_edition['topics'] = "" # could we infer this from the structure file?
+    current_edition['frequency'] = "" # is this something we should include in the config file?
+    current_edition['keywords'] = ["", ""] # anyway some of this could be infered?
+    current_edition['issued'] = data["mes:Structure"]['mes:Header']['mes:Prepared'].split('.')[0] + 'Z' # Not sure whether there is a better way to get issued date as it seems to just take the date it was extracted
+    current_edition['modified'] = tidyCSV['Extracted'].iloc[0].split('+')[0] + 'Z' # This is working off the assumption that every extraction date is a new modification of the data
+    current_edition['spatial_resolution'] = list(tidyCSV.COUNTERPART_AREA.unique()) # this is certainly not gonna be correct in the long run but we can replace it later or remove it 
+    current_edition['spatial_coverage'] = list(tidyCSV.REF_AREA.unique()) # this is certainly not gonna be correct in the long run but we can replace it later or remove it 
+    current_edition['temporal_resolution'] = list(tidyCSV.TIME_FORMAT.unique())
+    current_edition['temporal_coverage'] = {'start' : min(tidyCSV.TIME_PERIOD), 'end' : max(tidyCSV.TIME_PERIOD)} # This will need a lot of formatting/conditions to end up as datetime from what could be varying format of input
+    current_edition['versions_url'] = 'https://staging.idpd.uk/datasets/' + pathify(dataset_title) + '/editions/' + str(datetime.now().strftime("%Y-%m")) + '/versions'
+    current_edition['versions'] = {'@id': 'https://staging.idpd.uk/datasets/' + pathify(dataset_title) + '/editions/' + str(datetime.now().strftime("%Y-%m")) + '/versions/1',
+                                'issued': data["mes:Structure"]['mes:Header']['mes:Prepared'].split('.')[0] + 'Z'}
+    current_edition['next_release'] = "" # could we infer this from issued date and frequency if we include that in the config?
+
+    columns = []
+    for i in full_dimensions_list:
+        column = {}
+        column['name'] = i[0]
+        column['datatype'] = i[3]
+        column['titles'] = i[1]
+        column['description'] = i[2]
+        columns.append(column)
+    current_edition['table_schema'] = {'columns' : columns}
+    editions_template['editions'][0] = current_edition # just a reminder this is currently for a first edition of a dataset so it will put itself as the only entry
+
+    editions_template['count'] = len(editions_template['editions'])
+    editions_template['offset'] = 0 # not sure what this is tbh
+
+    # dump out metadata file
+
+    with open(outputPath + pathify(dataset_title) + "_" + str(datetime.now().strftime("%Y-%m")) + ".json", "w") as outfile:
+        json.dump(editions_template, outfile, ensure_ascii=False, indent=4)
 
 
 def throw_error(error):
@@ -339,42 +442,48 @@ def throw_error(error):
 
 # Need to change these paths as they wont work right now 
 
-path_to_json = './example-files/codelists/' 
-json_files = [pos_json for pos_json in os.listdir(path_to_json) if pos_json.endswith('.json')]
+#path_to_json = './example-files/codelists/' 
+#json_files = [pos_json for pos_json in os.listdir(path_to_json) if pos_json.endswith('.json')]
 
-path_to_raw = './example-files/input/' 
-src_files = [pos_json for pos_json in os.listdir(path_to_raw) if pos_json.endswith('.xml')]
+#path_to_raw = './example-files/input/' 
+#src_files = [pos_json for pos_json in os.listdir(path_to_raw) if pos_json.endswith('.xml')]
 
 with DAG(
     default_args = default_args,
     dag_id = 'CORD-POC_v2',
     description = 'Testing supply use tables',
-    start_date = datetime(2024, 1, 24),
+    start_date = datetime(2024, 2, 1),
     schedule_interval = '@daily'
 ) as dag:
-    if len(src_files) == 1:
+    #if len(src_files) == 1:
 
-        src_file = src_files[0]
+        #src_file = src_files[0]
 
         codelistsFromXML = PythonOperator(
-                task_id = 'codelistsFromXML',
-                python_callable = codelists_from_XML,
-                op_args=['./example-files/XMLs/NA_SU_v1.9_SDMX2.0 OT.xml', "example-files/out/CodeLists.csv"]
-            )
+            task_id = 'codelistsFromXML',
+            python_callable = codelists_from_XML,
+            op_args=['./example-files/XMLs/NA_SU_v1.9_SDMX2.0 OT.xml', "example-files/out/CodeLists.csv"]
+        )
         
         XMLtoCSV = PythonOperator(
             task_id = 'convertXMLtoCSV',
             python_callable = xmlToCsvSDMX2_0,
-            op_args=['./example-files/input/' + src_file, "example-files/out/SU_SDMX.csv"]
+            op_args=[r'./example-files/input/SUT T1500 - NATP.ESA10.SU_SDMX Output_BlueBook_25_Jan_2024 (SDMX 2.0).xml', "example-files/out/SU_SDMX.csv"]
+        )
+
+        editionsMetadata = PythonOperator(
+            task_id = 'generateEditionsMetadata',
+            python_callable = generate_editions_metadata,
+            op_args = ("./example-files/out/SU_SDMX.csv", r"./example-files/input/NA_SU_v1.9_SDMX2.0 OT.xml", "example-files/out/")
         )
 
         generateCodelists = PythonOperator(
-                task_id = 'generateCodelists',
-                python_callable = generate_codelists,
-                op_args=["example-files/out/CodeLists.csv"]
-            )
+            task_id = 'generateCodelists',
+            python_callable = generate_codelists,
+            op_args=["example-files/out/CodeLists.csv"]
+        )
         
-        codelistsFromXML >> XMLtoCSV >> generateCodelists
+        codelistsFromXML >> XMLtoCSV >> editionsMetadata >> generateCodelists
 
         #CSVWrangling = PythonOperator(
         #        task_id = 'CSVWrangling',
@@ -406,9 +515,9 @@ with DAG(
 
         #    generateCodelists >> generateTurtleFromJsonFile
 
-    else:
-            multipleFilesError = PythonOperator(
-                task_id = 'Error',
-                python_callable = throw_error,
-                op_args=["Multiple/No Input files detected, please ensure only 1 source file is present."]                
-            )  
+    #else:
+     #       multipleFilesError = PythonOperator(
+      #          task_id = 'Error',
+       #         python_callable = throw_error,
+        #        op_args=["Multiple/No Input files detected, please ensure only 1 source file is present."]                
+         #   )  
